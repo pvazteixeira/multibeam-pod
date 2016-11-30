@@ -14,3 +14,4 @@ pods_install_python_packages(${CMAKE_CURRENT_SOURCE_DIR}/python)
 # This script gets installed to ${CMAKE_INSTALL_PREFIX}/bin/hello-python
 # and automatically sets the correct python path.
 # pods_install_python_script(hello-python hello.main)
+pods_install_python_script(multibeam-viewer multibeam.viewer)

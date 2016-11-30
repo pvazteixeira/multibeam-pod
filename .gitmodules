@@ -1,0 +1,3 @@
+[submodule "python/multibeam"]
+	path = python/multibeam
+	url = git@github.com:pvazteixeira/multibeam.git
