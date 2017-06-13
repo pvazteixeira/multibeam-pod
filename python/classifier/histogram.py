@@ -11,6 +11,7 @@ published on the MULTIBEAM_RANGES channel
 
 from multibeam.sonar import Sonar
 from multibeam.didson import Didson
+from matplotlib import pyplot as plt
 import numpy as np
 import cv2
 import lcm
@@ -53,14 +54,30 @@ def pingHandler(channel, data):
     # deconvolve
     ping_deconv = didson.deconvolve(ping)
     # remove beam pattern taper
-    # ping_deconv = didson.removeTaper(ping_deconv)
+    ping_deconv = didson.removeTaper(ping_deconv)
+    # remove range effects
+
+    print 'ping:', ping.min(), '-', ping.max()
+    print 'ping_deconv:', ping_deconv.min(), '-', ping_deconv.max()
+
+    bins = np.arange(0,1.0,0.01)
+    h = np.histogram(ping, bins)
+    hd = np.histogram(ping_deconv, bins)
+    plt.clf()
+    plt.plot(bins[:-1], (h[0]+0.0)/np.sum(h[0]))
+    plt.plot(bins[:-1], (hd[0]+0.0)/np.sum(hd[0]))
+    plt.xlim([0, 1.0])
+    plt.yscale('log')
+    plt.grid()
+    plt.legend(['raw','enh'])
+    plt.pause(0.001)
 
     # show results - disable for speed improvements
-    img = didson.toCart(ping)
-    cv2.imshow('ping (raw)',img)
-    img_deconv = didson.toCart(ping_deconv)
-    cv2.imshow('ping (enhanced)',img_deconv)
-    cv2.waitKey(1)
+    # img = didson.toCart(ping)
+    # cv2.imshow('ping (raw)',img)
+    # img_deconv = didson.toCart(ping_deconv)
+    # cv2.imshow('ping (enhanced)',img_deconv)
+    # cv2.waitKey(1)
 
 if __name__ == '__main__':    
 

@@ -50,15 +50,24 @@ def pingHandler(channel, data):
     ping+=32768.0 # convert to range 0 - 65535
     ping/=65535.0 # convert to range 0 - 1
 
+    # dump pings to disk
+    pingu = ping*255.0
+    fname = 'pings/raw/'+str(msg.time)
+    cv2.imwrite(fname+'.png',pingu.astype(np.uint8))
+    didson.saveConfig(fname+'.json')
+
     # deconvolve
     ping_deconv = didson.deconvolve(ping)
     # remove beam pattern taper
-    ping_deconv = didson.removeTaper(ping_deconv)
+    ping_e2= didson.removeTaper(ping_deconv)
+    # remove range effects
+    ping_e3 = didson.removeRange(ping_e2)
 
     # classify
     # ideally just a call to getReturns
     ping_binary = ping_deconv;
-    ping_binary[ping_binary<0.35] = 0
+    #ping_binary[ping_binary<0.35] = 0
+    ping_binary[ping_binary<0.3] = 0
     # pings are (512,96)
     intensities = np.amax(ping_binary,axis=0)
     ranges = np.argmax(ping_binary, axis=0)
@@ -98,29 +107,35 @@ def pingHandler(channel, data):
         # add it to the range_scan_t message
         msg_out.beams.append(b)
 
-    # create outgoing message
-    # msg_out = planar_lidar_t() 
-    # msg_out.utime = msg.time
-    # msg_out.nranges = didson.num_beams
-    # msg_out.ranges = ranges #np.zeros(didson.num_beams)
-    # msg_out.nintensities = didson.num_beams
-    # msg_out.intensities = intensities #np.zeros(didson.num_beams)
-    # msg_out.rad0 = didson.fov/2.0 
-    # msg_out.radstep = -didson.fov/(didson.num_beams + 0.0)
-
     # publish
     lcm_node.publish("MULTIBEAM_RANGES", msg_out.encode()) 
 
+    print 'intensity ranges:'
+    print '   ping:', ping.min(), ping.max()
+    print '   ping_deconv:', ping_deconv.min(), ping_deconv.max()
+
     # show results - disable for speed improvements
-    # img = didson.toCart(ping)
-    # cv2.imshow('ping (raw)',img)
-    # img_deconv = didson.toCart(ping_deconv)
-    # cv2.imshow('ping (enhanced)',img_deconv)
-    # cv2.waitKey(1)
+    ranges = np.argmax(ping_binary, axis=0)
+    ping_hits = np.zeros_like(ping_binary)
+    ping_hits[ranges,range(0,96)] = 1.0
+    ping_deconv_cart = didson.toCart(ping_deconv)
+    ping_hits = didson.toCart(ping_hits)
+    img_raw = didson.toCart(ping)
+    img_deconv = didson.toCart(ping_deconv)
+
+    img_hits = np.dstack((img_raw,img_raw,img_raw))
+    img_hits[:,:,2] =  img_hits[:,:,2] + ping_hits 
+
+    # cv2.imshow('ping (raw)',img_raw)
+    cv2.imshow('ping (enhanced)',img_deconv)
+    cv2.imshow('ping (hits)',img_hits)
+
+    cv2.waitKey(1)
+
 
 if __name__ == '__main__':    
-
     print '[multibeam.classifier.main]'
+    print '[2017-05-04]'
 
     global lcm_node, didson
 
@@ -134,6 +149,7 @@ if __name__ == '__main__':
     # this breaks with the conda-installed version of opencv
     cv2.namedWindow('ping (raw)',cv2.WINDOW_NORMAL)
     cv2.namedWindow('ping (enhanced)',cv2.WINDOW_NORMAL)
+    cv2.namedWindow('ping (hits)',cv2.WINDOW_NORMAL)
     
     try:
         while True:
