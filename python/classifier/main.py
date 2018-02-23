@@ -70,23 +70,31 @@ def pingHandler(channel, data):
     cv2.imwrite(fname+'.png',ping_deconv.astype(np.uint8))
 
     # remove beam pattern taper
-    ping_e2= didson.removeTaper(ping_deconv)
-    fname = 'pings/e2/'+str(msg.time)
-    cv2.imwrite(fname+'.png',ping_e2.astype(np.uint8))
+    # ping_e2= didson.removeTaper(ping_deconv)
+    # fname = 'pings/e2/'+str(msg.time)
+    # cv2.imwrite(fname+'.png',ping_e2.astype(np.uint8))
 
     # remove range effects
-    ping_e3 = didson.removeRange(ping_e2)
-    fname = 'pings/e3/'+str(msg.time)
-    cv2.imwrite(fname+'.png',ping_e3.astype(np.uint8))
+    # ping_e3 = didson.removeRange(ping_e2)
+    # fname = 'pings/e3/'+str(msg.time)
+    # cv2.imwrite(fname+'.png',ping_e3.astype(np.uint8))
 
     # classify
     # ideally just a call to getReturns
     ping_binary = ping_deconv;
-    #ping_binary[ping_binary<0.35] = 0
     ping_binary[ping_binary<0.3] = 0 # threshold here
     # pings are (512,96)
     intensities = np.amax(ping_binary,axis=0)
-    ranges = np.argmax(ping_binary, axis=0)
+    #ranges = np.argmax(ping_binary, axis=0) # max above threshold
+    # first return (for bjh)
+    ranges = np.zeros(didson.num_beams) 
+    for b in range(0,len(ranges)):
+        idx = np.nonzero(ping_binary[:,b])
+        if len(idx[0]):
+            ranges[b] = idx[0][0]
+        else:
+            ranges[b] = -didson.min_range
+            
     bin_length = (didson.max_range - didson.min_range)/(didson.num_bins + 0.0)
     ranges = ranges*bin_length;
     ranges[ranges<=0] = -didson.min_range # no return here
