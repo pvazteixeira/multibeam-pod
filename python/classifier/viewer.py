@@ -32,7 +32,7 @@ def pingHandler(channel, data):
     global lcm_node, didson 
     msg = ping_t.decode(data)
 
-# check if we need to update the didson object
+    # check if we need to update the didson object
 
     if ( didson.min_range != msg.min_range ) or (didson.max_range != msg.max_range):
         # window parameters have changed
@@ -62,7 +62,7 @@ def pingHandler(channel, data):
     cv2.imshow('ping (enhanced)',img_deconv)
     cv2.waitKey(1)
 
-if __name__ == '__main__':    
+if __name__ == '__main__':
 
     print '[multibeam.classifier.main]'
 
@@ -78,7 +78,7 @@ if __name__ == '__main__':
     # this breaks with the conda-installed version of opencv
     cv2.namedWindow('ping (raw)',cv2.WINDOW_NORMAL)
     cv2.namedWindow('ping (enhanced)',cv2.WINDOW_NORMAL)
-    
+
     try:
         while True:
             lcm_node.handle()

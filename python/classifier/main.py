@@ -4,9 +4,9 @@
 Multibeam range classification
 
 This script subscribes to lcm messages of the type multibeam.ping_t on the
-channel MULTIBEAM_PING. Each received ping is processed using the multibeam module
-functionality (enhanced and classified), and the resulting range measurements area
-published on the MULTIBEAM_RANGES channel
+channel MULTIBEAM_PING. Each received ping is processed using the multibeam
+module functionality (enhanced and classified), and the resulting range
+measurements are published on the MULTIBEAM_RANGES channel.
 """
 
 from multibeam.sonar import Sonar
@@ -32,14 +32,21 @@ def pingHandler(channel, data):
     global lcm_node, didson 
     msg = ping_t.decode(data)
 
-# check if we need to update the didson object
-
+    # check if we need to update the didson object
     if ( didson.min_range != msg.min_range ) or (didson.max_range != msg.max_range):
         # window parameters have changed
         print 'window parameters have changed, resetting window'
         print 'min_range',didson.min_range,'->',msg.min_range
         print 'max_range',didson.max_range,'->',msg.max_range
         didson.resetWindow(msg.min_range, msg.max_range)
+        print 'new config:'
+        didson.printConfig()
+
+    if (didson.rx_gain != msg.rx_gain):
+        print 'receiver gain has changed!'
+        didson.rx_gain = msg.rx_gain
+        print 'new config:'
+        didson.printConfig()
 
     ping = np.copy(np.asarray(msg.image, dtype=np.int16))
     ping.shape = (msg.height, msg.width)
@@ -54,20 +61,29 @@ def pingHandler(channel, data):
     pingu = ping*255.0
     fname = 'pings/raw/'+str(msg.time)
     cv2.imwrite(fname+'.png',pingu.astype(np.uint8))
+    fname = 'pings/cfg/'+str(msg.time)
     didson.saveConfig(fname+'.json')
 
     # deconvolve
     ping_deconv = didson.deconvolve(ping)
+    fname = 'pings/e1/'+str(msg.time)
+    cv2.imwrite(fname+'.png',ping_deconv.astype(np.uint8))
+
     # remove beam pattern taper
     ping_e2= didson.removeTaper(ping_deconv)
+    fname = 'pings/e2/'+str(msg.time)
+    cv2.imwrite(fname+'.png',ping_e2.astype(np.uint8))
+
     # remove range effects
     ping_e3 = didson.removeRange(ping_e2)
+    fname = 'pings/e3/'+str(msg.time)
+    cv2.imwrite(fname+'.png',ping_e3.astype(np.uint8))
 
     # classify
     # ideally just a call to getReturns
     ping_binary = ping_deconv;
     #ping_binary[ping_binary<0.35] = 0
-    ping_binary[ping_binary<0.3] = 0
+    ping_binary[ping_binary<0.3] = 0 # threshold here
     # pings are (512,96)
     intensities = np.amax(ping_binary,axis=0)
     ranges = np.argmax(ping_binary, axis=0)
@@ -117,16 +133,17 @@ def pingHandler(channel, data):
     # show results - disable for speed improvements
     ranges = np.argmax(ping_binary, axis=0)
     ping_hits = np.zeros_like(ping_binary)
-    ping_hits[ranges,range(0,96)] = 1.0
+    ping_hits[ranges,range(0, 96)] = 1.0
     ping_deconv_cart = didson.toCart(ping_deconv)
     ping_hits = didson.toCart(ping_hits)
     img_raw = didson.toCart(ping)
     img_deconv = didson.toCart(ping_deconv)
 
-    img_hits = np.dstack((img_raw,img_raw,img_raw))
+    #img_hits = np.dstack((img_raw,img_raw,img_raw))
+    img_hits = np.dstack((img_deconv,img_deconv,img_deconv))
     img_hits[:,:,2] =  img_hits[:,:,2] + ping_hits 
 
-    # cv2.imshow('ping (raw)',img_raw)
+    cv2.imshow('ping (raw)',img_raw)
     cv2.imshow('ping (enhanced)',img_deconv)
     cv2.imshow('ping (hits)',img_hits)
 
