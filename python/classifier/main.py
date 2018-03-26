@@ -11,6 +11,7 @@ published on the MULTIBEAM_RANGES channel
 
 from multibeam.sonar import Sonar
 from multibeam.didson import Didson
+from multibeam.utils import *
 import numpy as np
 import cv2
 import lcm
@@ -29,7 +30,7 @@ __status__     = "Development"
 
 
 def pingHandler(channel, data):
-    global lcm_node, didson 
+    global lcm_node, didson
     msg = ping_t.decode(data)
 
 # check if we need to update the didson object
@@ -53,20 +54,18 @@ def pingHandler(channel, data):
     # dump pings to disk
     pingu = ping*255.0
     fname = 'pings/raw/'+str(msg.time)
-    cv2.imwrite(fname+'.png',pingu.astype(np.uint8))
-    didson.saveConfig(fname+'.json')
+    # cv2.imwrite(fname+'.png',pingu.astype(np.uint8))
+    # didson.saveConfig(fname+'.json')
 
     # deconvolve
     ping_deconv = didson.deconvolve(ping)
     # remove beam pattern taper
-    ping_e2= didson.removeTaper(ping_deconv)
+    # ping_deconv = didson.removeTaper(ping_deconv)
     # remove range effects
-    ping_e3 = didson.removeRange(ping_e2)
+    # ping_e3 = didson.removeRange(ping_e2)
 
     # classify
-    # ideally just a call to getReturns
     ping_binary = ping_deconv;
-    #ping_binary[ping_binary<0.35] = 0
     ping_binary[ping_binary<0.3] = 0
     # pings are (512,96)
     intensities = np.amax(ping_binary,axis=0)
@@ -126,16 +125,17 @@ def pingHandler(channel, data):
     img_hits = np.dstack((img_raw,img_raw,img_raw))
     img_hits[:,:,2] =  img_hits[:,:,2] + ping_hits 
 
-    # cv2.imshow('ping (raw)',img_raw)
+    cv2.imshow('ping (raw)',img_raw)
     cv2.imshow('ping (enhanced)',img_deconv)
     cv2.imshow('ping (hits)',img_hits)
 
     cv2.waitKey(1)
 
 
-if __name__ == '__main__':    
+if __name__ == '__main__':
     print '[multibeam.classifier.main]'
-    print '[2017-05-04]'
+    print '[feature/mrf]'
+    print '[2018-03-08]'
 
     global lcm_node, didson
 
@@ -150,7 +150,7 @@ if __name__ == '__main__':
     cv2.namedWindow('ping (raw)',cv2.WINDOW_NORMAL)
     cv2.namedWindow('ping (enhanced)',cv2.WINDOW_NORMAL)
     cv2.namedWindow('ping (hits)',cv2.WINDOW_NORMAL)
-    
+
     try:
         while True:
             lcm_node.handle()
