@@ -15,6 +15,7 @@ from multibeam.utils import *
 import numpy as np
 import cv2
 import lcm
+import json
 
 # multibeam-lcmtypes
 from multibeamlcm import *
@@ -28,12 +29,8 @@ __maintainer__ = "Pedro Vaz Teixeira"
 __email__      = "pvt@mit.edu"
 __status__     = "Development"
 
-
-def pingHandler(channel, data):
-    global lcm_node, didson
-    msg = ping_t.decode(data)
-
-# check if we need to update the didson object
+def updateDidson(msg):
+    global didson
 
     if ( didson.min_range != msg.min_range ) or (didson.max_range != msg.max_range):
         # window parameters have changed
@@ -41,6 +38,73 @@ def pingHandler(channel, data):
         print 'min_range',didson.min_range,'->',msg.min_range
         print 'max_range',didson.max_range,'->',msg.max_range
         didson.resetWindow(msg.min_range, msg.max_range)
+
+    if (didson.rx_gain!=msg.rx_gain):
+        didson.rx_gain = msg.rx_gain
+
+    # TODO: update other config parameters (focus, gain, etc)
+
+def savePing(msg, ping_img):
+    global didson
+    ping = {}
+    ping['timestamp']= msg.time
+    ping['id'] = msg.sonar_id
+
+    ping['platform']={}
+    ping['platform']['x'] = msg.platform_origin[0]
+    ping['platform']['y'] = msg.platform_origin[1]
+    ping['platform']['z'] = msg.platform_origin[2]
+    ping['platform']['qw'] = msg.platform_orientation[0]
+    ping['platform']['qx'] = msg.platform_orientation[1]
+    ping['platform']['qy'] = msg.platform_orientation[2]
+    ping['platform']['qz'] = msg.platform_orientation[3]
+
+    ping['sensor']={}
+    ping['sensor']['x'] = msg.sensor_origin[0]
+    ping['sensor']['y'] = msg.sensor_origin[1]
+    ping['sensor']['z'] = msg.sensor_origin[2]
+    ping['sensor']['qw'] = msg.sensor_orientation[0]
+    ping['sensor']['qx'] = msg.sensor_orientation[1]
+    ping['sensor']['qy'] = msg.sensor_orientation[2]
+    ping['sensor']['qz'] = msg.sensor_orientation[3]
+
+    ping['hfov'] = msg.hfov
+    ping['vfov'] = msg.vfov
+
+    ping['num_beams'] = msg.num_beams
+    ping['beam_hfov'] = msg.beam_hfov
+    ping['beam_vfov'] = msg.beam_vfov
+
+    ping['rx_gain'] =  msg.rx_gain
+
+    ping['min_range'] = msg.min_range
+    ping['max_range'] = msg.max_range
+    ping['focus'] = msg.focus
+
+    ping['num_bins'] = msg.num_bins
+
+    ping['azimuths'] = np.linspace(msg.hfov/2.0, -msg.hfov/2.0, msg.num_beams).tolist()
+    ping['ranges'] = np.linspace(msg.min_range, msg.max_range, msg.num_bins).tolist()
+
+    ping['beams'] = {}
+    for i in range(0,msg.num_beams):
+        ping['beams'][str(i)] = np.squeeze( ping_img[:,i] ).tolist()
+
+    ping['taper'] = didson.taper.tolist()
+    ping['psf'] = np.squeeze( didson.psf ).tolist()
+    ping['noise'] = didson.noise
+
+    fname = str(msg.time)+'.json'
+    with open(fname, 'w') as fp:
+        json.dump(ping, fp, sort_keys=True, indent=2)
+
+
+def pingHandler(channel, data):
+    global lcm_node, didson
+    msg = ping_t.decode(data)
+
+    # check if we need to update the didson object
+    updateDidson(msg)
 
     ping = np.copy(np.asarray(msg.image, dtype=np.int16))
     ping.shape = (msg.height, msg.width)
@@ -54,8 +118,10 @@ def pingHandler(channel, data):
     # dump pings to disk
     pingu = ping*255.0
     fname = 'pings/raw/'+str(msg.time)
-    # cv2.imwrite(fname+'.png',pingu.astype(np.uint8))
-    # didson.saveConfig(fname+'.json')
+    cv2.imwrite(fname+'.png',pingu.astype(np.uint8))
+    didson.saveConfig(fname+'.json')
+
+    # TODO: save cart as well
 
     # deconvolve
     ping_deconv = didson.deconvolve(ping)
@@ -63,6 +129,7 @@ def pingHandler(channel, data):
     # ping_deconv = didson.removeTaper(ping_deconv)
     # remove range effects
     # ping_e3 = didson.removeRange(ping_e2)
+    savePing(msg, ping)
 
     # classify
     ping_binary = ping_deconv;
