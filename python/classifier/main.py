@@ -10,7 +10,7 @@ published on the MULTIBEAM_RANGES channel
 """
 
 from multibeam.sonar import Sonar
-from multibeam.didson import Didson
+# from multibeam.didson import Didson
 from multibeam.utils import *
 import numpy as np
 import cv2
@@ -37,7 +37,7 @@ def updateDidson(msg):
         print 'window parameters have changed, resetting window'
         print 'min_range',didson.min_range,'->',msg.min_range
         print 'max_range',didson.max_range,'->',msg.max_range
-        didson.resetWindow(msg.min_range, msg.max_range)
+        didson.reset_window(msg.min_range, msg.max_range)
 
     if (didson.rx_gain!=msg.rx_gain):
         didson.rx_gain = msg.rx_gain
@@ -83,7 +83,9 @@ def savePing(msg, ping_img):
 
     ping['num_bins'] = msg.num_bins
 
-    ping['azimuths'] = np.linspace(msg.hfov/2.0, -msg.hfov/2.0, msg.num_beams).tolist()
+   # TODO: fix this! there is a non-linear look-up between beam and angle
+    # ping['azimuths'] = np.linspace(msg.hfov/2.0, -msg.hfov/2.0, msg.num_beams).tolist()
+    ping['azimuths'] = didson.azimuths.tolist()
     ping['ranges'] = np.linspace(msg.min_range, msg.max_range, msg.num_bins).tolist()
 
     ping['beams'] = {}
@@ -117,11 +119,13 @@ def pingHandler(channel, data):
 
     # dump pings to disk
     pingu = ping*255.0
-    fname = 'pings/raw/'+str(msg.time)
-    cv2.imwrite(fname+'.png',pingu.astype(np.uint8))
-    didson.saveConfig(fname+'.json')
+    fname = 'pings/'+str(msg.time)
+    cv2.imwrite(fname+'_raw_polar.png',pingu.astype(np.uint8))
+    didson.save_config(fname+'.json')
 
-    # TODO: save cart as well
+    pingc = didson.to_cart(ping, 255.0)
+    pingcu = pingc*255.0
+    cv2.imwrite(fname+'_raw_cart.png',pingcu.astype(np.uint8))
 
     # deconvolve
     ping_deconv = didson.deconvolve(ping)
@@ -174,7 +178,7 @@ def pingHandler(channel, data):
         msg_out.beams.append(b)
 
     # publish
-    lcm_node.publish("MULTIBEAM_RANGES", msg_out.encode()) 
+    lcm_node.publish("MULTIBEAM_RANGES", msg_out.encode())
 
     print 'intensity ranges:'
     print '   ping:', ping.min(), ping.max()
@@ -184,10 +188,10 @@ def pingHandler(channel, data):
     ranges = np.argmax(ping_binary, axis=0)
     ping_hits = np.zeros_like(ping_binary)
     ping_hits[ranges,range(0,96)] = 1.0
-    ping_deconv_cart = didson.toCart(ping_deconv)
-    ping_hits = didson.toCart(ping_hits)
-    img_raw = didson.toCart(ping)
-    img_deconv = didson.toCart(ping_deconv)
+    ping_deconv_cart = didson.to_cart(ping_deconv)
+    ping_hits = didson.to_cart(ping_hits)
+    img_raw = didson.to_cart(ping)
+    img_deconv = didson.to_cart(ping_deconv)
 
     img_hits = np.dstack((img_raw,img_raw,img_raw))
     img_hits[:,:,2] =  img_hits[:,:,2] + ping_hits 
@@ -201,14 +205,14 @@ def pingHandler(channel, data):
 
 if __name__ == '__main__':
     print '[multibeam.classifier.main]'
-    print '[feature/mrf]'
-    print '[2018-03-08]'
+    print '[branch: feature/mrf]'
+    print '[date:   2019-04-30]'
 
     global lcm_node, didson
 
     # instantiate a sonar object with default config
-    didson = Didson();
-    didson.loadConfig('data/DIDSON/didson.json')
+    didson = Sonar();
+    didson.load_config('data/DIDSON/didson.json')
 
     lcm_node = lcm.LCM()
     ping_subscription = lcm_node.subscribe("MULTIBEAM_PING", pingHandler)
