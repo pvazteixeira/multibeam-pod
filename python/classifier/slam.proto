@@ -1,0 +1,131 @@
+syntax = "proto2";
+
+package slam_io;
+
+// "primitive" types
+
+message Status {
+  optional string status = 1;
+  optional double time = 2;
+}
+
+message Pose3d {
+  required double x = 1;
+  required double y = 2;
+  required double z = 3;
+  required double qw = 4;
+  required double qx = 5;
+  required double qy = 6;
+  required double qz = 7;
+  optional double timestamp = 8 [ default = -1.0 ];
+}
+
+message MatrixXd {
+  required uint32 rows = 1;
+  required uint32 cols = 2;
+  repeated double data = 3 [ packed = true ];
+}
+
+message Point3d {
+  required float x = 1;
+  required float y = 2;
+  required float z = 3;
+  // normal
+  optional float nx = 4;
+  optional float ny = 5;
+  optional float nz = 6;
+  // color
+  optional float r = 7 ;
+  optional float g = 8 ;
+  optional float b = 9 ;
+
+}
+
+message PointCloud {
+  optional uint32 size = 1;
+  repeated Point3d points = 2;
+}
+
+// message PointCloud {
+//   // optional uint32 size = 1;
+//   // repeated Point3d points = 2;
+//   repeated float x = 1 [packed=true];
+//   repeated float y = 2 [packed=true];
+//   repeated float z = 3 [packed=true];
+//   repeated float r = 4 [packed=true];
+//   repeated float g = 5 [packed=true];
+//   repeated float b = 6 [packed=true];
+//   repeated float nx = 7 [packed=true];
+//   repeated float ny = 8 [packed=true];
+//   repeated float nz = 9 [packed=true];
+// }
+
+// nested types
+
+message Scan {
+  // this mirrors Scan.hpp
+  optional double timestamp = 1;
+  optional Pose3d platform_pose = 2;
+  // sensor pose in the platform fram e
+  optional Pose3d sensor_pose = 3;
+  optional uint32 num_beams = 4;
+  optional float min_range = 5;
+  optional float max_range = 6;
+  optional float hfov = 7;
+  optional float vfov = 8;
+  repeated float ranges = 9 [packed=true];
+  repeated float intensities = 10 [packed=true];
+  repeated Pose3d beams = 11;
+  // point cloud in platform frame
+  optional PointCloud point_cloud_platform = 12;
+}
+
+message Map {
+  optional uint32 id = 1;
+  repeated Scan scans = 2;
+}
+
+message PoseGraph {
+  message PoseNode {
+    required uint32 id = 1;
+    optional Pose3d pose = 2;
+  }
+
+  enum FactorType {
+    UNARY = 1;
+    BINARY = 2;
+    TERNARY = 3;
+    QUATERNARY = 4;
+  }
+
+  message Factor {
+    required FactorType type = 1;
+    // the ids of the nodes that the factor pertains to
+    repeated uint32 ids = 2;
+    optional Pose3d delta = 3;
+    optional MatrixXd cov = 4;
+  }
+
+  repeated PoseNode poses = 1;
+  repeated Factor factors = 2;
+}
+
+message Session {
+  // the session name
+  optional string name = 1;
+  // how many maps in the session
+  optional uint32 size = 2; 
+  // which pose is used as the base pose for each map
+  optional uint32 ref_pose_idx = 3;
+  // estimates for the base poses
+  repeated Pose3d base_poses = 4;
+}
+
+message Atlas {
+  optional string name = 1;
+  optional uint32 size = 2;
+  optional PoseGraph pose_graph = 3;
+}
+
+
+

@@ -17,6 +17,8 @@ import cv2
 import lcm
 import json
 
+import slam_pb2
+
 # multibeam-lcmtypes
 from multibeamlcm import *
 
@@ -43,6 +45,32 @@ def updateDidson(msg):
         didson.rx_gain = msg.rx_gain
 
     # TODO: update other config parameters (focus, gain, etc)
+
+def save_ping(msg, ping_img):
+    global didson
+    scan = slam_pb2.Scan()
+
+    scan.platform_pose.x = msg.platform_origin[0]
+    scan.platform_pose.y = msg.platform_origin[1]
+    scan.platform_pose.z = msg.platform_origin[2]
+    scan.platform_pose.qw = msg.platform_orientation[0]
+    scan.platform_pose.qx = msg.platform_orientation[1]
+    scan.platform_pose.qy = msg.platform_orientation[2]
+    scan.platform_pose.qz = msg.platform_orientation[3]
+
+    scan.sensor_pose.x = msg.sensor_origin[0]
+    scan.sensor_pose.y = msg.sensor_origin[1]
+    scan.sensor_pose.z = msg.sensor_origin[2]
+    scan.sensor_pose.qw = msg.sensor_orientation[0]
+    scan.sensor_pose.qx = msg.sensor_orientation[1]
+    scan.sensor_pose.qy = msg.sensor_orientation[2]
+    scan.sensor_pose.qz = msg.sensor_orientation[3]
+
+    fname = 'scan_'+str(msg.time)+'.bpb'
+    with open(fname, 'w') as fp:
+        fp.write(scan.SerializeToString())
+        fp.close()
+
 
 def savePing(msg, ping_img):
     global didson
@@ -134,6 +162,7 @@ def pingHandler(channel, data):
     # remove range effects
     # ping_e3 = didson.removeRange(ping_e2)
     savePing(msg, ping)
+    save_ping(msg, ping)
 
     # classify
     ping_binary = ping_deconv;
