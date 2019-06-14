@@ -6,18 +6,18 @@ Multibeam range classification
 This script subscribes to lcm messages of the type multibeam.ping_t on the
 channel MULTIBEAM_PING. Each received ping is processed using the multibeam module
 functionality (enhanced and classified), and the resulting range measurements area
-published on the MULTIBEAM_RANGES channel
+published on the MULTIBEAM_RANGES channel. Additionally, this script can also save
+the ping information as a combination of Protobuf, JSON, and PNG.
 """
 
 from multibeam.sonar import Sonar
-# from multibeam.didson import Didson
 from multibeam.utils import *
 import numpy as np
 import cv2
 import lcm
 import json
 
-import slam_pb2
+import slam_pb2 # proto
 
 # multibeam-lcmtypes
 from multibeamlcm import *
@@ -32,23 +32,30 @@ __email__      = "pvt@mit.edu"
 __status__     = "Development"
 
 def updateDidson(msg):
+    """
+    update sonar configuration
+    """
     global didson
 
-    if ( didson.min_range != msg.min_range ) or (didson.max_range != msg.max_range):
-        # window parameters have changed
+    if (didson.min_range != msg.min_range) or (didson.max_range != msg.max_range):
         print 'window parameters have changed, resetting window'
-        print 'min_range',didson.min_range,'->',msg.min_range
-        print 'max_range',didson.max_range,'->',msg.max_range
-        didson.reset_window(msg.min_range, msg.max_range)
+        print '[', didson.min_range, ',', didson.max_range, '] -> [', msg.min_range, ',', msg.max_range, ']'
+        didson.reset_window(msg.min_range, msg.max_range, 0.02)
 
-    if (didson.rx_gain!=msg.rx_gain):
+    if didson.rx_gain != msg.rx_gain:
         didson.rx_gain = msg.rx_gain
 
     # TODO: update other config parameters (focus, gain, etc)
 
-def save_ping(msg, ping_img):
+def save_ping(msg, ping_img, ranges, intensities):
+    """
+    Save the scan as a serialized protobuffer object
+    """
+
     global didson
     scan = slam_pb2.Scan()
+
+    scan.timestamp = msg.time
 
     scan.platform_pose.x = msg.platform_origin[0]
     scan.platform_pose.y = msg.platform_origin[1]
@@ -66,6 +73,29 @@ def save_ping(msg, ping_img):
     scan.sensor_pose.qy = msg.sensor_orientation[2]
     scan.sensor_pose.qz = msg.sensor_orientation[3]
 
+    scan.num_beams = msg.num_beams
+    scan.min_range = msg.min_range
+    scan.max_range = msg.max_range
+    scan.hfov = msg.hfov
+    scan.vfov = msg.vfov
+
+    for i in range(0, msg.num_beams):
+        scan.ranges.append(ranges[i])
+
+        scan.intensities.append(intensities[i]) # return intensity
+
+        azi = -didson.azimuth(i) # flip sign
+        # azi = msg.hfov/2.0 - i*msg.beam_hfov # WORKS
+
+        beam = scan.beams.add()
+        beam.x = 0.0
+        beam.y = 0.0
+        beam.z = 0.0
+        beam.qw = np.cos(azi/2.0)
+        beam.qx = 0.0
+        beam.qy = 0.0
+        beam.qz = np.sin(azi/2.0)
+
     fname = 'scan_'+str(msg.time)+'.bpb'
     with open(fname, 'w') as fp:
         fp.write(scan.SerializeToString())
@@ -74,7 +104,8 @@ def save_ping(msg, ping_img):
 
 def savePing(msg, ping_img):
     global didson
-    ping = {}
+    ping = didson.to_json(ping_img)
+
     ping['timestamp']= msg.time
     ping['id'] = msg.sonar_id
 
@@ -99,30 +130,12 @@ def savePing(msg, ping_img):
     ping['hfov'] = msg.hfov
     ping['vfov'] = msg.vfov
 
-    ping['num_beams'] = msg.num_beams
     ping['beam_hfov'] = msg.beam_hfov
     ping['beam_vfov'] = msg.beam_vfov
 
-    ping['rx_gain'] =  msg.rx_gain
-
-    ping['min_range'] = msg.min_range
-    ping['max_range'] = msg.max_range
     ping['focus'] = msg.focus
 
-    ping['num_bins'] = msg.num_bins
-
-   # TODO: fix this! there is a non-linear look-up between beam and angle
-    # ping['azimuths'] = np.linspace(msg.hfov/2.0, -msg.hfov/2.0, msg.num_beams).tolist()
-    ping['azimuths'] = didson.azimuths.tolist()
     ping['ranges'] = np.linspace(msg.min_range, msg.max_range, msg.num_bins).tolist()
-
-    ping['beams'] = {}
-    for i in range(0,msg.num_beams):
-        ping['beams'][str(i)] = np.squeeze( ping_img[:,i] ).tolist()
-
-    ping['taper'] = didson.taper.tolist()
-    ping['psf'] = np.squeeze( didson.psf ).tolist()
-    ping['noise'] = didson.noise
 
     fname = str(msg.time)+'.json'
     with open(fname, 'w') as fp:
@@ -133,8 +146,7 @@ def pingHandler(channel, data):
     global lcm_node, didson
     msg = ping_t.decode(data)
 
-    # check if we need to update the didson object
-    updateDidson(msg)
+    updateDidson(msg) # check if we need to update the didson object
 
     ping = np.copy(np.asarray(msg.image, dtype=np.int16))
     ping.shape = (msg.height, msg.width)
@@ -145,35 +157,32 @@ def pingHandler(channel, data):
     ping+=32768.0 # convert to range 0 - 65535
     ping/=65535.0 # convert to range 0 - 1
 
-    # dump pings to disk
-    pingu = ping*255.0
     fname = 'pings/'+str(msg.time)
-    cv2.imwrite(fname+'_raw_polar.png',pingu.astype(np.uint8))
+    cv2.imwrite(fname+'_raw_polar.png',(ping*255.0).astype(np.uint8))
     didson.save_config(fname+'.json')
 
-    pingc = didson.to_cart(ping, 255.0)
-    pingcu = pingc*255.0
-    cv2.imwrite(fname+'_raw_cart.png',pingcu.astype(np.uint8))
+    ping_deconv = didson.preprocess(ping, False)
 
-    # deconvolve
-    ping_deconv = didson.deconvolve(ping)
-    # remove beam pattern taper
-    # ping_deconv = didson.removeTaper(ping_deconv)
-    # remove range effects
-    # ping_e3 = didson.removeRange(ping_e2)
-    savePing(msg, ping)
-    save_ping(msg, ping)
-
-    # classify
-    ping_binary = ping_deconv;
-    ping_binary[ping_binary<0.3] = 0
-    # pings are (512,96)
-    intensities = np.amax(ping_binary,axis=0)
-    ranges = np.argmax(ping_binary, axis=0)
     bin_length = (didson.max_range - didson.min_range)/(didson.num_bins + 0.0)
-    ranges = ranges*bin_length;
-    ranges[ranges<=0] = -didson.min_range # no return here
-    ranges += didson.min_range*np.ones(msg.width)
+    pulse = get_template(dr=bin_length)
+    idx = segment_smap(ping_deconv, pulse)
+    idx[idx < 1] = -1
+    ranges = np.copy(idx).astype(float)
+    ranges[ranges > 0] *= bin_length
+    ranges[ranges > 0] += didson.min_range*np.ones_like(ranges[ranges>0])
+    intensities = ping_deconv[idx, range(0, msg.num_beams)]
+    intensities[idx < 1] = 0
+
+    save_ping(msg, ping, ranges, intensities) # save as proto
+
+    # ping_binary = np.copy(ping_deconv);
+    # ping_binary[ping_binary<0.3] = 0
+    # pings are (512,96)
+    # intensities = np.amax(ping_binary,axis=0)
+    # ranges = np.argmax(ping_binary, axis=0)
+    # ranges = ranges*bin_length;
+    # ranges[ranges<=0] = -didson.min_range # no return here
+    # ranges += didson.min_range*np.ones(msg.width)
 
     msg_out = range_scan_t()
     msg_out.time = msg.time
@@ -183,7 +192,7 @@ def pingHandler(channel, data):
     msg_out.sensor_orientation = msg.sensor_orientation
     msg_out.num_beams = msg.num_beams
 
-    for i in range(0,msg.num_beams):
+    for i in range(0, msg.num_beams):
         # create and fill range_t message
         b = range_t()
         b.time = msg.time
@@ -209,25 +218,19 @@ def pingHandler(channel, data):
     # publish
     lcm_node.publish("MULTIBEAM_RANGES", msg_out.encode())
 
-    print 'intensity ranges:'
-    print '   ping:', ping.min(), ping.max()
-    print '   ping_deconv:', ping_deconv.min(), ping_deconv.max()
-
     # show results - disable for speed improvements
-    ranges = np.argmax(ping_binary, axis=0)
-    ping_hits = np.zeros_like(ping_binary)
-    ping_hits[ranges,range(0,96)] = 1.0
-    ping_deconv_cart = didson.to_cart(ping_deconv)
+    ping_hits = reconstruct(ping, idx)
     ping_hits = didson.to_cart(ping_hits)
+
     img_raw = didson.to_cart(ping)
     img_deconv = didson.to_cart(ping_deconv)
 
     img_hits = np.dstack((img_raw,img_raw,img_raw))
     img_hits[:,:,2] =  img_hits[:,:,2] + ping_hits 
 
-    cv2.imshow('ping (raw)',img_raw)
-    cv2.imshow('ping (enhanced)',img_deconv)
-    cv2.imshow('ping (hits)',img_hits)
+    cv2.imshow('ping (raw)',np.rot90(img_raw,3))
+    cv2.imshow('ping (enhanced)',np.rot90(img_deconv,3))
+    cv2.imshow('ping (hits)',np.rot90(img_hits,3))
 
     cv2.waitKey(1)
 
